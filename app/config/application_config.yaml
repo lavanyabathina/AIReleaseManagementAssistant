@@ -1,0 +1,25 @@
+# =====================================================
+# AI Knowledge Assistant - Application Configuration
+# =====================================================
+
+application:
+
+llm:
+  #provider: gemini
+  #model: gemini-3.6-flash
+  #temperature: 0
+  provider: claude
+  model: claude-sonnet-4-6
+  temperature: 0
+  
+
+deepeval_judgellm:
+  #provider: gemini
+  #model: gemini-3.6-flash
+  #temperature: 0
+  provider: claude
+  model: claude-sonnet-4-6
+  temperature: 0
+  #provider: groq
+  #model: llama-3.1-8b-instant
+  #temperature: 0

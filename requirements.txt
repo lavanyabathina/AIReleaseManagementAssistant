@@ -1,0 +1,7 @@
+pydantic 
+langchain
+langchain-core
+langchain-google-genai
+langchain-anthropic
+python-dotenv
+beautifulsoup4
