@@ -60,7 +60,7 @@ The CertificationRequest is the authoritative source for:
 - Parent Story assignee
 - Start date
 - End date
-- Confluence space key
+- Confluence space name
 
 ==================================================
 1. RETRIEVE PRODUCT AND POC INFORMATION
@@ -126,6 +126,9 @@ CertificationRequest.certification
 
 Assignee:
 CertificationRequest.parent_story_assignee
+
+Pass this as assignee_email. The parent Story assignee is checked
+against a separate authorized-assignee list than product Tasks.
 
 Release:
 CertificationRequest.release
@@ -223,7 +226,16 @@ The Task description must contain:
 - End date
 - Purpose of the certification activity
 
-Assign the Task to the Jira user resolved from the POC.
+Assign the Task by passing the POC email address as assignee_email.
+
+create_jira_issue resolves the email to a Jira user internally and
+enforces the authorized-assignee policy. Do not pass account IDs.
+
+If create_jira_issue returns an authorization error:
+
+- Do not retry with a different assignee.
+- Report the product, the POC, and the actual error.
+- Continue processing other products.
 
 Use the Jira project from:
 
@@ -333,41 +345,38 @@ needed for the page is available.
 7. RESOLVE CONFLUENCE SPACE
 ==================================================
 
-The CertificationRequest contains a Confluence SPACE KEY.
+The CertificationRequest contains a Confluence SPACE NAME.
 
 Example:
 
-REL
+lavanya bathina
 
-Do NOT assume that the space key is the space ID.
+create_confluence_page takes the space NAME and resolves it to a
+Confluence space ID internally.
 
-Use:
-
-get_confluence_space_details
-
-with:
+Pass:
 
 CertificationRequest.confluence_space
 
-The tool must return the actual Confluence space ID.
+as the space_name argument.
 
-Use the returned space ID when creating the page.
+Do not pass a space ID or a space key.
 
 Do not hard-code the space ID.
 
-Verify that:
+You may call get_confluence_space_details separately if you need the
+space ID for verification, but it is not required before creating
+the page.
 
-returned space key == CertificationRequest.confluence_space
+If space resolution fails, create_confluence_page returns an error:
 
-If space resolution fails:
-
-- Do not create the Confluence page.
+- Do not retry with a different space.
 - Report the failure.
 - Return the successfully created Jira artifacts.
 
 Maintain:
 
-Confluence Space Key -> Confluence Space ID
+Confluence Space Name -> Confluence Space ID
 
 ==================================================
 8. CREATE CONFLUENCE CERTIFICATION SUMMARY PAGE
@@ -380,7 +389,8 @@ Use:
 
 create_confluence_page
 
-Use the actual Confluence space ID returned by the space lookup tool.
+Pass CertificationRequest.confluence_space as the space_name argument.
+The tool resolves the space ID itself.
 
 Page title format:
 
@@ -476,9 +486,8 @@ Do not create rows for products whose Jira Tasks were not created.
 
 Before creating the page:
 
-- Resolve the space.
-- Obtain the actual space ID.
-- Verify the space key.
+- Pass the space name from CertificationRequest.confluence_space.
+- create_confluence_page resolves the space ID itself.
 
 Before creating the page:
 

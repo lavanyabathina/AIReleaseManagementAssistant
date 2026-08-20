@@ -4,6 +4,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from app.security.confluence_security import authorize_confluence_space
 
 load_dotenv()
 
@@ -15,7 +16,7 @@ CONFLUENCE_API_TOKEN= os.getenv("CONFLUENCE_API_TOKEN")
 @tool
 def search_confluence_page(
     query: str,
-    space_key: Optional[str] = None,
+    space_name: Optional[str] = None,
     limit: int = 5
 ) -> dict:
     """
@@ -23,11 +24,16 @@ def search_confluence_page(
 
     Args:
         query: Text to search for in Confluence.
-        space_key: Optional Confluence space key to restrict the search.
+        space_name: Optional Confluence space name, for example
+            'lavanya bathina', used to restrict the search to that space.
+            The name is resolved to a space key internally. Do not pass a
+            space key or a space ID. Omit it to search all spaces.
         limit: Maximum number of pages to return.
 
     Returns:
-        Matching Confluence pages with title, URL, space and content.
+        Matching Confluence pages with title, URL, space and content, or
+        a dictionary containing an "error" key if the space cannot be
+        resolved or the Confluence API call fails.
     """
 
     if not CONFLUENCE_EMAIL or not CONFLUENCE_API_TOKEN:
@@ -38,7 +44,25 @@ def search_confluence_page(
     # Search page title/content
     cql = f'type=page AND text ~ "{query}"'
 
-    if space_key:
+    if space_name:
+        try:
+            authorize_confluence_space(space_name)
+        except PermissionError as e:
+            return {
+                "error": str(e)
+            }
+
+        space = get_confluence_space_details.invoke(space_name)
+        space_key = space.get("space_key")
+
+        if not space_key:
+            return {
+                "error": space.get(
+                    "error",
+                    f"Could not resolve Confluence space: {space_name}"
+                )
+            }
+
         cql += f' AND space="{space_key}"'
 
     cql += " ORDER BY lastmodified DESC"
@@ -81,7 +105,7 @@ def search_confluence_page(
             + page.get("_links", {}).get("webui", "")
             )
 
-            space_name = (
+            result_space_name = (
                 result.get("resultGlobalContainer", {})
             .get("title")
             )
@@ -89,7 +113,7 @@ def search_confluence_page(
             results.append({
                 "page_id": page_id,
                 "title": page.get("title"),
-                "space": space_name,
+                "space": result_space_name,
                 "url": page_url
             })
 
@@ -230,7 +254,7 @@ def get_confluence_space_details(space_name: str) -> dict:
 @tool
 def create_confluence_page(
     title: str,
-    space_id: str,
+    space_name: str,
     content: str,
     parent_page_id: Optional[str] = None
 ) -> dict:
@@ -239,17 +263,40 @@ def create_confluence_page(
 
     Args:
         title: Title of the page.
-        space_id: Confluence space ID.
+        space_name: Confluence space name, for example 'lavanya bathina'.
+            The name is resolved to a Confluence space ID internally.
+            Do not pass a space ID or a space key.
         content: Page content in storage format.
         parent_page_id: Optional parent page ID.
 
     Returns:
-        Details of the created page.
+        Details of the created page including page_id, title, space_id
+        and url, or a dictionary containing an "error" key if the space
+        cannot be resolved, a page with the same title already exists,
+        or the Confluence API call fails.
     """
 
     if not CONFLUENCE_EMAIL or not CONFLUENCE_API_TOKEN:
         return {
             "error": "Confluence credentials are not configured."
+        }
+
+    try:
+        authorize_confluence_space(space_name)
+    except PermissionError as e:
+        return {
+            "error": str(e)
+        }
+
+    space = get_confluence_space_details.invoke(space_name)
+    space_id = space.get("space_id")
+
+    if not space_id:
+        return {
+            "error": space.get(
+                "error",
+                f"Could not resolve Confluence space: {space_name}"
+            )
         }
 
     url = f"{CONFLUENCE_API_BASE_URL}/api/v2/pages"
@@ -321,6 +368,7 @@ def create_confluence_page(
 @tool
 def update_confluence_page(
     page_id: str,
+    space_name: str,
     title: str,
     body: str
 ) -> dict:
@@ -329,9 +377,29 @@ def update_confluence_page(
 
     Args:
         page_id: Confluence page ID.
+        space_name: Confluence space name the page belongs to, for
+            example 'lavanya bathina'. Checked against the authorized
+            Confluence spaces before the page is updated.
         title: New page title.
         body: Page content in Confluence storage format.
+
+    Returns:
+        Updated page information including page_id, title, version and
+        url, or a dictionary containing an "error" key if the space is
+        not authorized or the Confluence API call fails.
     """
+
+    if not CONFLUENCE_EMAIL or not CONFLUENCE_API_TOKEN:
+        return {
+            "error": "Confluence credentials are not configured."
+        }
+
+    try:
+        authorize_confluence_space(space_name)
+    except PermissionError as e:
+        return {
+            "error": str(e)
+        }
 
     url = f"{CONFLUENCE_API_BASE_URL}/rest/api/content/{page_id}"
 
@@ -343,8 +411,12 @@ def update_confluence_page(
 
         get_response = requests.get(
             url,
-            headers=HEADERS,
-            params=params
+            params=params,
+            auth=(CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN),
+            headers={
+                "Accept": "application/json"
+            },
+            timeout=30
         )
 
         get_response.raise_for_status()
@@ -377,8 +449,13 @@ def update_confluence_page(
 
         response = requests.put(
             url,
-            headers=HEADERS,
-            json=payload
+            json=payload,
+            auth=(CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            },
+            timeout=30
         )
 
         response.raise_for_status()

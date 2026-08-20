@@ -4,6 +4,11 @@ from typing import Optional
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from app.security.jira_security import (
+    authorize_jira_action,
+    authorize_jira_task_assignee,
+    authorize_jira_story_assignee
+)
 
 load_dotenv()
 
@@ -63,10 +68,16 @@ def get_jira_fields() -> dict :
 @tool
 def get_jira_issue(issue_id_or_key : str) -> dict :
     """
-    Retrieve all Jira system and custom fields.
+    Retrieve a single Jira issue by its key or ID.
+
+    Args:
+        issue_id_or_key: Jira issue key or ID, for example REL-15.
 
     Returns:
-        A list of Jira fields containing field ID, name, and schema information.
+        Issue details including issue_id, issue_key, summary, issue_type,
+        project, status, assignee, start_date, due_date, description and
+        linked_issues, or a dictionary containing an "error" key if the
+        Jira API call fails.
     """
 
     url = f"{JIRA_API_BASE_URL}/rest/api/3/issue/{issue_id_or_key}"
@@ -199,7 +210,7 @@ def create_jira_issue(
     description: str,
     start_date: str,
     end_date: str,
-    assignee_account_id: Optional[str] = None
+    assignee_email: str
 ) -> dict:
     """
     Create a Jira Story or Task.
@@ -211,12 +222,40 @@ def create_jira_issue(
         description: Description of the Jira issue.
         start_date: Start date in YYYY-MM-DD format.
         end_date: End date in YYYY-MM-DD format.
-        assignee_account_id: Atlassian account ID of the assignee.
+        assignee_email: Email address of the assignee. The email is
+            checked against the authorized assignees for the issue type
+            (Story and Task use separate lists) and then resolved to an
+            Atlassian account ID internally. Do not pass an account ID.
+
+    Returns:
+        Created issue information including issue_id, issue_key and
+        issue_url, or a dictionary containing an "error" key if the
+        issue type is invalid, the creation is not authorized, the
+        assignee cannot be resolved, or the Jira API call fails.
     """
 
     if issue_type not in ["Story", "Task"]:
         return {
             "error": "issue_type must be either 'Story' or 'Task'."
+        }
+
+    try:
+        authorize_jira_action(project_key, "create")
+        if issue_type == "Story":
+            authorize_jira_story_assignee(assignee_email)
+        else:
+            authorize_jira_task_assignee(assignee_email)
+    except PermissionError as e:
+        return {
+            "error": str(e)
+        }
+
+    assignee = get_jira_user.invoke(assignee_email)
+    assignee_account_id = assignee.get("account_id")
+
+    if not assignee_account_id:
+        return {
+            "error": f"Could not resolve Jira user for email: {assignee_email}"
         }
 
     url = f"{JIRA_API_BASE_URL}/rest/api/3/issue"
@@ -360,7 +399,7 @@ def update_jira_issue(
     issue_key: str,
     summary: str = None,
     description: str = None,
-    assignee_account_id: str = None,
+    assignee_email: str = None,
     start_date: str = None,
     due_date: str = None,
     priority_id: str = None
@@ -368,17 +407,24 @@ def update_jira_issue(
     """
     Update an existing Jira issue.
 
+    Only the fields you supply are changed. Omitted fields are left as is.
+
     Args:
         issue_key: Jira issue key, for example REL-28.
         summary: New issue summary.
         description: New issue description.
-        assignee_account_id: Atlassian account ID of the assignee.
+        assignee_email: Email address of the new assignee. The email is
+            checked against the authorized assignees for the issue type
+            and then resolved to an Atlassian account ID internally.
+            Do not pass an account ID.
         start_date: New start date in YYYY-MM-DD format.
         due_date: New due date in YYYY-MM-DD format.
         priority_id: Jira priority ID.
 
     Returns:
-        Updated Jira issue information.
+        Updated Jira issue information, or a dictionary containing an
+        "error" key if the update is not authorized, the assignee cannot
+        be resolved, or the Jira API call fails.
     """
 
     if not JIRA_EMAIL or not JIRA_API_TOKEN:
@@ -387,6 +433,42 @@ def update_jira_issue(
         }
 
     url = f"{JIRA_API_BASE_URL}/rest/api/3/issue/{issue_key}"
+
+    try:
+        authorize_jira_action(issue_key.split("-")[0], "update")
+    except PermissionError as e:
+        return {
+            "error": str(e)
+        }
+
+    assignee_account_id = None
+
+    if assignee_email:
+        issue = get_jira_issue.invoke(issue_key)
+
+        if issue.get("error"):
+            return {
+                "error": f"Could not read {issue_key} to authorize the "
+                         f"assignee change: {issue['error']}"
+            }
+
+        try:
+            if issue.get("issue_type") == "Story":
+                authorize_jira_story_assignee(assignee_email)
+            else:
+                authorize_jira_task_assignee(assignee_email)
+        except PermissionError as e:
+            return {
+                "error": str(e)
+            }
+
+        assignee = get_jira_user.invoke(assignee_email)
+        assignee_account_id = assignee.get("account_id")
+
+        if not assignee_account_id:
+            return {
+                "error": f"Could not resolve Jira user for email: {assignee_email}"
+            }
 
     fields = {}
 
@@ -484,6 +566,13 @@ def add_jira_comment(
         }
 
     url = f"{JIRA_API_BASE_URL}/rest/api/3/issue/{issue_key}/comment"
+
+    try:
+        authorize_jira_action(issue_key.split("-")[0], "add_comment")
+    except PermissionError as e:
+        return {
+            "error": str(e)
+        }
 
     payload = {
         "body": {

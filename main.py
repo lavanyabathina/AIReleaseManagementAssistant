@@ -43,7 +43,7 @@ def test_tools():
         "description": "Certification Activity for Oracle Linux6",
         "start_date": "2026-08-13",
         "end_date": "2026-09-13",
-        "assignee_account_id": account_id
+        "assignee_email": "lavanya.bathina@gmail.com"
     })
     print("Create issue(story) result is:*****")
     print(create_story_issue_result)
@@ -59,7 +59,7 @@ def test_tools():
         "description": "Certification Activity for WLS with Oracle Linux6",
         "start_date": "2026-08-13",
         "end_date": "2026-09-13",
-        "assignee_account_id": account_id
+        "assignee_email": "lavanya.bathina@gmail.com"
     })
     print("Create issue(task) result is:*****")
     print(create_task_issue_result)
@@ -88,7 +88,7 @@ def test_tools():
     print("-" * 60)
     create_page_result = create_confluence_page.invoke({
         "title": "Test Certification Page3",
-        "space_id": space_id,
+        "space_name": "lavanya bathina",
         "content": "<p>Hello from API V2</p>"
     })
     print("Create page result:")

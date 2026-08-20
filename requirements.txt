@@ -5,3 +5,4 @@ langchain-google-genai
 langchain-anthropic
 python-dotenv
 beautifulsoup4
+pyyaml

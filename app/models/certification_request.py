@@ -10,6 +10,8 @@ class CertificationRequest(BaseModel):
     start_date : date
     end_date : date 
 
+
+
     @model_validator(mode='after')
     def validate_dates(self):
         print("validate_dates() called")
@@ -17,3 +19,4 @@ class CertificationRequest(BaseModel):
             raise ValueError("Start date can't be after End Date")
         else:
             return self
+    

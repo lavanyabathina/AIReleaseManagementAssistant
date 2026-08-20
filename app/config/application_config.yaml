@@ -23,3 +23,21 @@ deepeval_judgellm:
   #provider: groq
   #model: llama-3.1-8b-instant
   #temperature: 0
+
+security:
+  allowed_jira_projects:
+    - REL
+
+  authorized_jira_actions:
+    - create
+    - update
+
+  authorized_task_assignees:
+    - lavanya.bathina@gmail.com
+    - lakumabathina@gmail.com
+
+  authorized_parent_story_assignees:
+    - lavanya.bathina@gmail.com
+
+  allowed_confluence_spaces:
+    - lavanya bathina
