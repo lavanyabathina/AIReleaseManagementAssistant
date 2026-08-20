@@ -129,16 +129,48 @@ def search_confluence_page(
         "error": f"Confluence API request failed: {str(e)}"
         }
 
+def get_confluence_space_name_by_id(space_id: str) -> Optional[str]:
+    """
+    Look up a Confluence space name from its space ID.
+
+    Internal helper, deliberately not exposed to the agent as a tool so
+    that space authorization cannot be influenced by the caller.
+
+    Returns the space name, or None if it cannot be determined.
+    """
+
+    url = f"{CONFLUENCE_API_BASE_URL}/api/v2/spaces/{space_id}"
+
+    response = requests.get(
+        url,
+        auth=(CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN),
+        headers={
+            "Accept": "application/json"
+        },
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+    return response.json().get("name")
+
+
 @tool
 def get_confluence_page_content(page_id : str)-> dict :
     """
         Retrieve the complete content and metadata of a Confluence page.
 
+        The space the page belongs to is read back from Confluence and
+        checked against the authorized Confluence spaces. Content is only
+        returned for pages in an authorized space.
+
         Args:
             page_id: The Confluence page ID.
 
         Returns:
-            Page metadata and content.
+            Page metadata and content, or a dictionary containing an
+            "error" key if the page's space is not authorized, the space
+            cannot be determined, or the Confluence API call fails.
     """
 
     try :
@@ -159,6 +191,38 @@ def get_confluence_page_content(page_id : str)-> dict :
         response.raise_for_status()
 
         data = response.json()
+
+        # Authorize using the space Confluence reports for this page, not
+        # a value supplied by the caller, then return the content only if
+        # that space is authorized.
+        space_id = data.get("spaceId")
+
+        if not space_id:
+            return {
+                "error": (
+                    f"Could not determine the Confluence space for page "
+                    f"{page_id}. Refusing to return its content."
+                )
+            }
+
+        space_name = get_confluence_space_name_by_id(space_id)
+
+        if not space_name:
+            return {
+                "error": (
+                    f"Could not determine the Confluence space name for "
+                    f"space ID {space_id}. Refusing to return the content "
+                    f"of page {page_id}."
+                )
+            }
+
+        try:
+            authorize_confluence_space(space_name)
+        except PermissionError as e:
+            return {
+                "error": str(e)
+            }
+
         title = data.get("title", "")
 
         html_content = data.get("body", {}).get("storage", {}).get("value", "")
